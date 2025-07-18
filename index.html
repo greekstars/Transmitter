@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Transmitter Github</title>
+<style>
+  body {
+    background: #000;
+    font-family: monospace;
+    color: #0af;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    overflow-x: hidden;
+  }
+  .terminal {
+    background: #000;
+    border-radius: 12px;
+    width: 420px;
+    padding: 20px;
+    text-align: center;
+    box-sizing: border-box;
+  }
+  .screen {
+    background: #111;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    color: #0af;
+    font-size: 18px;
+  }
+  .screen div {
+    margin: 5px 0;
+  }
+  .knob-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 15px;
+  }
+  .knob {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #555, #222);
+    border: 3px solid #333;
+    box-shadow: inset -5px -5px 10px rgba(0,0,0,0.5),
+                inset 5px 5px 10px rgba(255,255,255,0.1);
+    position: relative;
+    cursor: grab;
+    transition: transform 0.1s linear;
+  }
+  .knob:active { cursor: grabbing; }
+  .knob-indicator {
+    position: absolute;
+    top: 10px;
+    left: 48px;
+    width: 4px;
+    height: 20px;
+    background: #0af;
+    border-radius: 2px;
+  }
+  button {
+    background: #000;
+    border: 2px solid #444;
+    border-radius: 5px;
+    color: #fff;
+    padding: 10px 20px;
+    margin: 5px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #222;
+    color: #fff;
+  }
+  #stationMenu {
+    position: fixed;
+    top: 0;
+    right: -300px;
+    width: 300px;
+    height: 100%;
+    background: #000;
+    overflow-y: auto;
+    color: #0af;
+    padding: 10px;
+    transition: right 0.3s ease;
+    z-index: 2;
+  }
+  #stationMenu.open { right: 0; }
+  #stationMenu h2 {
+    text-align: center;
+    margin-top: 0;
+  }
+  #stationList div {
+    font-size: 14px;
+    line-height: 1.4;
+    cursor: pointer;
+    padding: 5px 0;
+    user-select: none;
+  }
+  #stationList div:hover {
+    background: #222;
+  }
+</style>
+</head>
+<body>
+
+<div class="terminal">
+  <div class="screen">
+    <div>MODE &gt; <span id="mode">FM</span></div>
+    <div>STATION &gt; <span id="channel">0.0</span></div>
+    <div>STEP &gt; <span id="step">0.1</span></div>
+    <div>POINTS &gt; <span id="points">0</span></div>
+  </div>
+
+  <div class="knob-container">
+    <div class="knob" id="knob">
+      <div class="knob-indicator"></div>
+    </div>
+  </div>
+
+  <div>
+    <button id="stepBtn">STEP</button>
+    <button id="reportBtn">REPORT</button>
+    <button id="modeMinus">MODE-</button>
+    <button id="modePlus">MODE+</button>
+  </div>
+</div>
+
+<div id="stationMenu">
+  <h2>Stations &amp; Noises</h2>
+  <div id="stationList"></div>
+</div>
+
+<audio id="staticAudio" src="https://files.catbox.moe/s3qeol.mp3" loop></audio>
+<audio id="noiseSample" src="https://files.catbox.moe/wnqmq8.mp3" loop></audio> 
+
+<script>
+const channelDisplay = document.getElementById("channel");
+const modeDisplay = document.getElementById("mode");
+const stepDisplay = document.getElementById("step");
+const pointsDisplay = document.getElementById("points");
+const knob = document.getElementById("knob");
+const stationMenu = document.getElementById("stationMenu");
+const stationList = document.getElementById("stationList");
+
+let channel = 0.0;
+let modeIndex = 0;
+let points = 0;
+let stepOptions = [0.1, 1, 10, 50, 100, 1000, 10000];
+let stepIndex = 0;
+
+const modes = ["FM", "AM", "CB", "USB"];
+
+const staticAudio = document.getElementById("staticAudio");
+const noiseSample = document.getElementById("noiseSample");
+
+staticAudio.volume = 1;
+noiseSample.volume = 0;
+
+const stationMp3s = [
+  "https://files.catbox.moe/v97mqf.mp3",
+  "https://files.catbox.moe/r7rhd9.mp3",
+  "https://files.catbox.moe/bo0dou.mp3",
+  "https://files.catbox.moe/czidqk.mp3",
+  "https://files.catbox.moe/2jhlfr.mp3",
+  "https://files.catbox.moe/0fi26c.mp3",
+  "https://files.catbox.moe/44b4lg.mp3"
+];
+
+let stationChannels = [];
+let stationAudios = [];
+
+let noiseChannels = [];
+let noiseAudios = [];
+
+let userInteracted = false;
+
+// --- Initialize station channels and audios
+function randomizeStationChannels() {
+  stationChannels = [];
+  stationAudios.forEach(audio => { audio.pause(); audio.src = ""; });
+  stationAudios = [];
+
+  for (let i = 0; i < 20; i++) {
+    let ch = Math.round((100 + Math.random() * 900) * 10) / 10;
+    stationChannels.push(ch);
+
+    let mp3src = stationMp3s[i % stationMp3s.length];
+    let audio = new Audio(mp3src);
+    audio.loop = true;
+    audio.volume = 0;
+    audio.play().catch(() => {});
+    stationAudios.push(audio);
+  }
+}
+
+// --- Initialize noise channels and audios
+function randomizeNoiseChannels() {
+  noiseChannels = [];
+  noiseAudios.forEach(audio => { audio.pause(); audio.src = ""; });
+  noiseAudios = [];
+
+  const noiseModes = ["USB", "CB", "AM"];
+  for (let i = 0; i < 20; i++) {
+    let ch = Math.round(Math.random() * 6000000) / 10;
+    let modeRand = Math.random();
+    let mode = modeRand < 0.7 ? "USB" : (modeRand < 0.9 ? "CB" : "AM");
+    noiseChannels.push({ channel: ch, mode: mode });
+
+    let audio = new Audio(noiseSample.src);
+    audio.loop = true;
+    audio.volume = 0;
+    audio.play().catch(() => {});
+    noiseAudios.push(audio);
+  }
+}
+
+function updateScreen() {
+  channelDisplay.textContent = channel.toFixed(1);
+  modeDisplay.textContent = modes[modeIndex];
+  stepDisplay.textContent = stepOptions[stepIndex];
+  pointsDisplay.textContent = points;
+}
+
+function checkChannel() {
+  // Reset volumes first
+  stationAudios.forEach(a => a.volume = 0);
+  noiseAudios.forEach(a => a.volume = 0);
+  staticAudio.volume = 1;
+
+  const currentMode = modes[modeIndex];
+
+  if (currentMode === "FM") {
+    // Find closest station within 0.5 channel range
+    let closestIndex = -1;
+    let minDiff = Infinity;
+    stationChannels.forEach((sCh, i) => {
+      let diff = Math.abs(sCh - channel);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIndex = i;
+      }
+    });
+    if (closestIndex >= 0 && minDiff <= 0.5) {
+      staticAudio.volume = 0.2;
+      let vol = (0.5 - minDiff) / 0.5;
+      if (vol < 0.05) vol = 0.05;
+      stationAudios[closestIndex].volume = vol;
+    }
+  } else {
+    // In AM, CB, USB: check noise channels
+    let closestIndex = -1;
+    let minDiff = Infinity;
+    for (let i = 0; i < noiseChannels.length; i++) {
+      const n = noiseChannels[i];
+      if (n.mode === currentMode) {
+        let diff = Math.abs(n.channel - channel);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIndex = i;
+        }
+      }
+    }
+    if (closestIndex >= 0 && minDiff <= 0.5) {
+      staticAudio.volume = 0.2;
+      let vol = (0.5 - minDiff) / 0.5;
+      if (vol < 0.05) vol = 0.05;
+      noiseAudios[closestIndex].volume = vol;
+    }
+  }
+}
+
+// Knob rotation logic
+let isDragging = false;
+let lastAngle = 0;
+knob.addEventListener("mousedown", (e) => {
+  isDragging = true;
+  lastAngle = getAngle(e);
+  if (!userInteracted) unlockAllAudio();
+});
+document.addEventListener("mouseup", () => {
+  isDragging = false;
+});
+document.addEventListener("mousemove", (e) => {
+  if (!isDragging) return;
+  let angle = getAngle(e);
+  let diff = angle - lastAngle;
+  if (diff > 5) { changeChannel(stepOptions[stepIndex]); lastAngle = angle; }
+  if (diff < -5) { changeChannel(-stepOptions[stepIndex]); lastAngle = angle; }
+  knob.style.transform = `rotate(${angle}deg)`;
+});
+
+function getAngle(e) {
+  const rect = knob.getBoundingClientRect();
+  const x = e.clientX - rect.left - rect.width / 2;
+  const y = e.clientY - rect.top - rect.height / 2;
+  return Math.atan2(y, x) * 180 / Math.PI + 90;
+}
+
+function changeChannel(amount) {
+  channel += amount;
+  if (channel > 600000) channel = 600000;
+  if (channel < 0) channel = 0;
+  updateScreen();
+  checkChannel();
+}
+
+document.getElementById("stepBtn").addEventListener("click", () => {
+  stepIndex = (stepIndex + 1) % stepOptions.length;
+  updateScreen();
+});
+
+document.getElementById("reportBtn").addEventListener("click", () => {
+  // Check if current channel & mode matches any noise channel within 0.5 steps
+  let reported = false;
+  for (let i = 0; i < noiseChannels.length; i++) {
+    const n = noiseChannels[i];
+    if (n.mode === modes[modeIndex] && Math.abs(n.channel - channel) <= 0.5) {
+      reported = true;
+      break;
+    }
+  }
+  if (reported) {
+    points += 10;
+    randomizeNoiseChannels();
+  } else {
+    points -= 5;
+    if (points < 0) points = 0;
+  }
+  updateScreen();
+});
+
+document.getElementById("modePlus").addEventListener("click", () => {
+  modeIndex = (modeIndex + 1) % modes.length;
+  updateScreen();
+  checkChannel();
+});
+
+document.getElementById("modeMinus").addEventListener("click", () => {
+  modeIndex = (modeIndex - 1 + modes.length) % modes.length;
+  updateScreen();
+  checkChannel();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.shiftKey && e.key.toLowerCase() === "a") {
+    toggleStationMenu();
+    if (!userInteracted) unlockAllAudio();
+  }
+});
+
+function toggleStationMenu() {
+  if (stationMenu.classList.contains("open")) {
+    stationMenu.classList.remove("open");
+  } else {
+    stationList.innerHTML = "";
+
+    // List FM stations
+    stationChannels.forEach((sCh, i) => {
+      let div = document.createElement("div");
+      div.textContent = `FM ${sCh.toFixed(1)}`;
+      div.style.cursor = "pointer";
+      div.addEventListener("click", () => {
+        modeIndex = modes.indexOf("FM");
+        channel = sCh;
+        updateScreen();
+        checkChannel();
+        if (!userInteracted) unlockAllAudio();
+      });
+      stationList.appendChild(div);
+    });
+
+    // List Noise channels grouped by mode
+    ["USB","CB","AM"].forEach(m => {
+      let header = document.createElement("div");
+      header.style.fontWeight = "bold";
+      header.style.marginTop = "10px";
+      header.textContent = `${m} Noise Channels:`;
+      stationList.appendChild(header);
+      noiseChannels.filter(n => n.mode === m).forEach(n => {
+        let div = document.createElement("div");
+        div.textContent = `${m} ${n.channel.toFixed(1)}`;
+        div.style.cursor = "pointer";
+        div.addEventListener("click", () => {
+          modeIndex = modes.indexOf(m);
+          channel = n.channel;
+          updateScreen();
+          checkChannel();
+          if (!userInteracted) unlockAllAudio();
+        });
+        stationList.appendChild(div);
+      });
+    });
+
+    stationMenu.classList.add("open");
+  }
+}
+
+function unlockAllAudio() {
+  userInteracted = true;
+  staticAudio.play().catch(() => {});
+  noiseAudios.forEach(a => a.play().catch(() => {}));
+  stationAudios.forEach(a => a.play().catch(() => {}));
+}
+
+// Init
+randomizeStationChannels();
+randomizeNoiseChannels();
+updateScreen();
+checkChannel();
+</script>
+
+</body>
+</html>
